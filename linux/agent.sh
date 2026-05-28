@@ -49,33 +49,31 @@ MOBO_SERIAL=$(cat /sys/class/dmi/id/board_serial 2>/dev/null | xargs)
 echo "📟 Henter detaljer om minnebrikker..."
 MEMORY_JSON_ARRAY=""
 
-# Vi bruker RS="\nMemory Device\n" som vi vet fungerer fjell på MSI-kortet
+# Vi splitter på dobbelt linjeskift for å få perfekte, isolerte blokker
 while read -r block; do
-    # Hvis blokken ikke inneholder en installert brikke, hopp over
-    if [[ ! "$block" =~ "Size:" ]] || [[ "$block" =~ "No Module Installed" ]]; then
+    # Vi bryr oss bare om blokker som faktisk gjelder et "Memory Device" med en installert brikke
+    if [[ ! "$block" =~ "Memory Device" ]] || [[ ! "$block" =~ "Size:" ]] || [[ "$block" =~ "No Module Installed" ]]; then
         continue
     fi
 
-    # Hent ut standardverdiene
+    # Hent ut verdiene trygt med xargs (som fjerner whitespace automatisk)
     size=$(echo "$block" | grep "Size:" | head -n1 | cut -d: -f2 | xargs)
-    locator=$(echo "$block" | grep "Locator:" | head -n1 | cut -d: -f2 | xargs)
+    locator=$(echo "$block" | grep "Locator:" | grep -v "Bank" | head -n1 | cut -d: -f2 | xargs)
     vendor=$(echo "$block" | grep "Manufacturer:" | head -n1 | cut -d: -f2 | xargs)
     speed=$(echo "$block" | grep "Speed:" | grep -E "MT/s|MHz" | head -n1 | cut -d: -f2 | xargs)
-
-    # NYTT: Hent ut type, serienummer og delenummer
     type=$(echo "$block" | grep "Type:" | head -n1 | cut -d: -f2 | xargs)
     serial=$(echo "$block" | grep "Serial Number:" | head -n1 | cut -d: -f2 | xargs)
     part=$(echo "$block" | grep "Part Number:" | head -n1 | cut -d: -f2 | xargs)
 
     [ -z "$size" ] && continue
 
-    # Fallbacks hvis felter mangler eller inneholder rart output
+    # Vask bort standard "Unknown" eller kjedelige feilmeldinger fra BIOS
     [ -z "$vendor" ] || [ "$vendor" = "Unknown" ] && vendor="Generisk"
     [ -z "$speed" ] && speed="Ukjent"
     [ -z "$locator" ] && locator="Ukjent spor"
     [ -z "$type" ] && type="DDR"
-    [ -z "$serial" ] || [ "$serial" = "Unknown" ] || [ "$serial" = "00000000" ] && serial=""
-    [ -z "$part" ] || [ "$part" = "Unknown" ] && part=""
+    [[ "$serial" =~ "Unknown" || "$serial" =~ "0000" || -z "$serial" ]] && serial=""
+    [[ "$part" =~ "Unknown" || -z "$part" ]] && part=""
 
     # Konverter størrelse til bytes
     RAW_SIZE_NUM=$(echo "$size" | grep -oE '[0-9]+')
@@ -86,7 +84,7 @@ while read -r block; do
         SIZE_BYTES=$((RAW_SIZE_NUM * 1024 * 1024))
     fi
 
-    # Oppdatert JQ: Vi legger til type, serienummer og partnummer i JSON-objektet
+    # Pakk alt til kompakt JSON på én linje
     MEM_ITEM=$(jq -c -n \
       --arg loc "$locator" \
       --arg ven "$vendor" \
@@ -103,7 +101,7 @@ while read -r block; do
         storrelse_bytes: ($size | tonumber),
         serienummer: (if $sn == "" then null else $sn end),
         delenummer: (if $pn == "" then null else $pn end)
-      } | del(..|nulls)') # Sletter tomme felter så vi slipper rot på skjermen
+      } | del(..|nulls)')
 
     if [ -z "$MEMORY_JSON_ARRAY" ]; then
         MEMORY_JSON_ARRAY="$MEM_ITEM"
@@ -111,9 +109,10 @@ while read -r block; do
         MEMORY_JSON_ARRAY="$MEMORY_JSON_ARRAY,$MEM_ITEM"
     fi
 
-done < <(sudo dmidecode -t memory 2>/dev/null | awk 'BEGIN {RS="\nMemory Device\n"} {print $0}')
+# Det magiske skillevatnet: To kjappe linjeskift (\n\n)
+done < <(sudo dmidecode -t memory 2>/dev/null | awk 'BEGIN {RS="\n\n"} {print $0}')
 
-# Hvis maskinen er en VM eller dmidecode feilet helt
+# Fallback for VM-er
 if [ -z "$MEMORY_JSON_ARRAY" ]; then
     MEMORY_JSON_ARRAY=$(jq -c -n \
       --arg size "$TOTAL_RAM_BYTES" \
