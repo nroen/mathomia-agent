@@ -23,9 +23,14 @@ TOTAL_RAM_BYTES=$(free -b | awk '/Mem:/ {print $2}' | xargs)
 # 3. Hent unik Hardware UUID
 echo "🆔 Henter maskinvare-UUID..."
 SYS_UUID=$(cat /sys/class/dmi/id/product_uuid 2>/dev/null | xargs)
-if [ -z "$SYS_UUID" ] || [ "$SYS_UUID" = "Not Specified" ]; then
+
+# Sjekk om UUID er tom, mangler, eller bare inneholder nuller/bindestreker
+if [ -z "$SYS_UUID" ] || [ "$SYS_UUID" = "Not Specified" ] || [[ "$SYS_UUID" =~ ^[0,-]*$ ]]; then
+    echo "⚠️  Hovedkort mangler gyldig UUID (fikk: $SYS_UUID). Bruker /etc/machine-id som fallback..."
     SYS_UUID=$(cat /etc/machine-id 2>/dev/null | xargs)
 fi
+
+# Hvis alt annet mot formodning feiler, lag en unik ID basert på hostname
 [ -z "$SYS_UUID" ] && SYS_UUID="fallback-$(echo "$SERVER_NAME" | md5sum | awk '{print $1}')"
 
 # 4. Pakk alt sammen i en 100% trygg JSON-struktur med jq
