@@ -54,81 +54,104 @@ MOBO_SERIAL=$(cat /sys/class/dmi/id/board_serial 2>/dev/null | xargs)
 
 
 
-
-
-
 # Hent detaljer om minnebrikker (RAM)
 echo "📟 Henter detaljer om minnebrikker..."
 MEMORY_JSON_ARRAY=""
 
-# Vi bruker RS="Handle " som vi VET at ATLAS sin awk spytter ut perfekt!
-while read -r block; do
-    # Hvis blokken ikke inneholder en fysisk brikke med størrelse, hopp over
-    if [[ ! "$block" =~ "Size:" ]] || [[ "$block" =~ "No Module Installed" ]]; then
+# Midlertidige variabler for å holde på dataene til én brikke mens vi leser
+in_device=false
+size=""
+locator=""
+vendor=""
+speed=""
+type=""
+serial=""
+part=""
+
+process_current_device() {
+    if [ "$in_device" = true ] && [ ! -z "$size" ] && [ "$size" != "No Module Installed" ]; then
+        # Fallbacks hvis felter mangler eller er "Unknown"
+        [ -z "$vendor" ] || [ "$vendor" = "Unknown" ] && vendor="Generisk"
+        [ -z "$speed" ] && speed="Ukjent"
+        [ -z "$locator" ] && locator="Ukjent spor"
+        [ -z "$type" ] && type="DDR"
+        [[ "$serial" =~ "Unknown" || "$serial" =~ "0000" || -z "$serial" ]] && serial=""
+        [[ "$part" =~ "Unknown" || -z "$part" ]] && part=""
+
+        # Konverter størrelse til bytes
+        RAW_SIZE_NUM=$(echo "$size" | grep -oE '[0-9]+')
+        SIZE_BYTES=0
+        if [[ "$size" =~ "GB" ]]; then
+            SIZE_BYTES=$((RAW_SIZE_NUM * 1024 * 1024 * 1024))
+        elif [[ "$size" =~ "MB" ]]; then
+            SIZE_BYTES=$((RAW_SIZE_NUM * 1024 * 1024))
+        fi
+
+        # Bygg kompakt JSON
+        MEM_ITEM=$(jq -c -n \
+          --arg loc "$locator" \
+          --arg ven "$vendor" \
+          --arg spd "$speed" \
+          --arg size "$SIZE_BYTES" \
+          --arg type "$type" \
+          --arg sn "$serial" \
+          --arg pn "$part" \
+          '{
+            modell: ("RAM-brikke (" + $loc + ")"),
+            produsent: $ven,
+            type: $type,
+            hastighet: $spd,
+            storrelse_bytes: ($size | tonumber),
+            serienummer: (if $sn == "" then null else $sn end),
+            delenummer: (if $pn == "" then null else $pn end)
+          } | del(..|nulls)')
+
+        if [ -z "$MEMORY_JSON_ARRAY" ]; then
+            MEMORY_JSON_ARRAY="$MEM_ITEM"
+        else
+            MEMORY_JSON_ARRAY="$MEMORY_JSON_ARRAY,$MEM_ITEM"
+        fi
+    fi
+}
+
+# Les linje for linje direkte fra dmidecode uten awk-avhengigheter
+while IFS= read -r line; do
+    # Hvis vi treffer en ny enhet, prosesser den forrige og nullstill
+    if [[ "$line" =~ "Memory Device" ]]; then
+        process_current_device
+        in_device=true
+        size=""; locator=""; vendor=""; speed=""; type=""; serial=""; part=""
         continue
     fi
 
-    # Hent ut verdiene ved å søke gjennom hele tekstblokken
-    size=$(echo "$block" | grep "Size:" | head -n1 | cut -d: -f2 | xargs)
-    locator=$(echo "$block" | grep "Locator:" | grep -v "Bank" | head -n1 | cut -d: -f2 | xargs)
-    vendor=$(echo "$block" | grep "Manufacturer:" | head -n1 | cut -d: -f2 | xargs)
-    speed=$(echo "$block" | grep "Speed:" | grep -E "MT/s|MHz" | head -n1 | cut -d: -f2 | xargs)
-    type=$(echo "$block" | grep "Type:" | grep -v "Error" | head -n1 | cut -d: -f2 | xargs)
-    serial=$(echo "$block" | grep "Serial Number:" | head -n1 | cut -d: -f2 | xargs)
-    part=$(echo "$block" | grep "Part Number:" | head -n1 | cut -d: -f2 | xargs)
-
-    [ -z "$size" ] && continue
-
-    # Fallbacks hvis felter mangler eller inneholder kjedelige BIOS-standarder
-    [ -z "$vendor" ] || [ "$vendor" = "Unknown" ] && vendor="Generisk"
-    [ -z "$speed" ] && speed="Ukjent"
-    [ -z "$locator" ] && locator="Ukjent spor"
-    [ -z "$type" ] && type="DDR"
-    [[ "$serial" =~ "Unknown" || "$serial" =~ "0000" || -z "$serial" ]] && serial=""
-    [[ "$part" =~ "Unknown" || -z "$part" ]] && part=""
-
-    # Konverter størrelse til bytes
-    RAW_SIZE_NUM=$(echo "$size" | grep -oE '[0-9]+')
-    SIZE_BYTES=0
-    if [[ "$size" =~ "GB" ]]; then
-        SIZE_BYTES=$((RAW_SIZE_NUM * 1024 * 1024 * 1024))
-    elif [[ "$size" =~ "MB" ]]; then
-        SIZE_BYTES=$((RAW_SIZE_NUM * 1024 * 1024))
+    # Hvis vi treffer en helt ny tabelltype som ikke er RAM, avslutt nåværende enhet
+    if [[ "$line" =~ Handle\ 0x ]]; then
+        process_current_device
+        in_device=false
     fi
 
-    # Pakk alt til en kompakt, herlig JSON-linje
-    MEM_ITEM=$(jq -c -n \
-      --arg loc "$locator" \
-      --arg ven "$vendor" \
-      --arg spd "$speed" \
-      --arg size "$SIZE_BYTES" \
-      --arg type "$type" \
-      --arg sn "$serial" \
-      --arg pn "$part" \
-      '{
-        modell: ("RAM-brikke (" + $loc + ")"),
-        produsent: $ven,
-        type: $type,
-        hastighet: $spd,
-        storrelse_bytes: ($size | tonumber),
-        serienummer: (if $sn == "" then null else $sn end),
-        delenummer: (if $pn == "" then null else $pn end)
-      } | del(..|nulls)')
-
-    if [ -z "$MEMORY_JSON_ARRAY" ]; then
-        MEMORY_JSON_ARRAY="$MEM_ITEM"
-    else
-        MEMORY_JSON_ARRAY="$MEMORY_JSON_ARRAY,$MEM_ITEM"
+    # Hvis vi er inni en gyldig minne-enhet, plukk opp verdiene
+    if [ "$in_device" = true ]; then
+        [[ "$line" =~ Size: ]] && size=$(echo "$line" | cut -d: -f2 | xargs)
+        [[ "$line" =~ Locator: && ! "$line" =~ "Bank" ]] && locator=$(echo "$line" | cut -d: -f2 | xargs)
+        [[ "$line" =~ Manufacturer: ]] && vendor=$(echo "$line" | cut -d: -f2 | xargs)
+        [[ "$line" =~ Speed: && ("$line" =~ "MT/s" || "$line" =~ "MHz") ]] && speed=$(echo "$line" | cut -d: -f2 | xargs)
+        [[ "$line" =~ Type: && ! "$line" =~ "Error" ]] && type=$(echo "$line" | cut -d: -f2 | xargs)
+        [[ "$line" =~ "Serial Number:" ]] && serial=$(echo "$line" | cut -d: -f2 | xargs)
+        [[ "$line" =~ "Part Number:" ]] && part=$(echo "$line" | cut -d: -f2 | xargs)
     fi
+done < <(sudo dmidecode -t memory 2>/dev/null)
 
-done < <(sudo dmidecode -t memory 2>/dev/null | awk 'BEGIN {RS="Handle "} {print $0}')
+# Prosesser den aller siste brikken i filen
+process_current_device
 
-# Hvis maskinen er en VM eller dmidecode feilet helt
+# Hvis maskinen er en VM eller ingen fysiske brikker ble funnet
 if [ -z "$MEMORY_JSON_ARRAY" ]; then
     MEMORY_JSON_ARRAY=$(jq -c -n \
       --arg size "$TOTAL_RAM_BYTES" \
       '{modell: "Virtuell minneallokering", produsent: "Hypervisor", storrelse_bytes: ($size | tonumber)}')
 fi
+
 
 
 
