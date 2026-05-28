@@ -49,14 +49,27 @@ MOBO_SERIAL=$(cat /sys/class/dmi/id/board_serial 2>/dev/null | xargs)
 echo "📟 Henter detaljer om minnebrikker..."
 MEMORY_JSON_ARRAY=""
 
-# Vi bruker dmidecode til å loope gjennom alle installerte minnebrikker
-while read -r size locator vendor speed; do
-    # Hvis feltet er tomt eller brikken er markert som tom/ukjent, hopper vi over
-    if [ -z "$size" ] || [[ "$size" =~ "No" ]] || [[ "$size" =~ "Unknown" ]]; then
+# Vi parser dmidecode per brikke-blokk (Handle)
+while read -r block; do
+    # Hvis blokken ikke inneholder en installert brikke, eller er tom, hopp over
+    if [[ ! "$block" =~ "Size:" ]] || [[ "$block" =~ "No Module Installed" ]]; then
         continue
     fi
+
+    # Hent ut verdiene trygt ved hjelp av grep og cut
+    size=$(echo "$block" | grep "Size:" | head -n1 | cut -d: -f2 | xargs)
+    locator=$(echo "$block" | grep "Locator:" | head -n1 | cut -d: -f2 | xargs)
+    vendor=$(echo "$block" | grep "Manufacturer:" | head -n1 | cut -d: -f2 | xargs)
     
-    # Konverter størrelse til bytes (dmidecode gir ofte f.eks. "16 GB" eller "16384 MB")
+    # Hent hastighet (vi tar første treff som har "MT/s" eller "MHz", for å unngå "Unknown" eller "Configured")
+    speed=$(echo "$block" | grep "Speed:" | grep -E "MT/s|MHz" | head -n1 | cut -d: -f2 | xargs)
+
+    # Fallbacks hvis felter er tomme eller ubrukelige
+    [ -z "$vendor" ] || [ "$vendor" = "Unknown" ] && vendor="Generisk"
+    [ -z "$speed" ] && speed="Ukjent"
+    [ -z "$locator" ] && locator="Ukjent spor"
+
+    # Konverter størrelse til bytes (f.eks. "16 GB" eller "8192 MB")
     RAW_SIZE_NUM=$(echo "$size" | grep -oE '[0-9]+')
     SIZE_BYTES=0
     if [[ "$size" =~ "GB" ]]; then
@@ -65,11 +78,7 @@ while read -r size locator vendor speed; do
         SIZE_BYTES=$((RAW_SIZE_NUM * 1024 * 1024))
     fi
 
-    # Rens opp lokasjon, produsent og hastighet
-    [ -z "$vendor" ] || [ "$vendor" = "Unknown" ] && vendor="Generisk"
-    [ -z "$speed" ] || [ "$speed" = "Unknown" ] && speed="Ukjent"
-    
-    # Bygg et lite JSON-objekt for denne brikken ved hjelp av jq
+    # Bygg et gyldig JSON-objekt for denne brikken
     MEM_ITEM=$(jq -n \
       --arg loc "$locator" \
       --arg ven "$vendor" \
@@ -82,12 +91,8 @@ while read -r size locator vendor speed; do
     else
         MEMORY_JSON_ARRAY="$MEMORY_JSON_ARRAY,$MEM_ITEM"
     fi
-done < <(sudo dmidecode -t memory 2>/dev/null | awk '
-    /Size:/ {size=$2" "$3}
-    /Locator:/ {loc=$2}
-    /Manufacturer:/ {vendor=$2; for(i=3;i<=NF;i++) vendor=vendor" "$i}
-    /Speed:/ {speed=$2" "$3; print size"|"loc"|"vendor"|"speed}
-' | grep -v "No Module Installed" | tr '|' ' ')
+
+done < <(sudo dmidecode -t memory 2>/dev/null | awk 'BEGIN {RS="Handle "} {print $0}')
 
 # Hvis maskinen er en VM eller dmidecode feilet helt, lager vi en virtuell brikke basert på total RAM
 if [ -z "$MEMORY_JSON_ARRAY" ]; then
