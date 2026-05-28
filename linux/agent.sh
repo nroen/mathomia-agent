@@ -20,17 +20,29 @@ CPU_MODEL=$(grep -m1 'model name' /proc/cpuinfo | sed 's/model name\s*:\s*//' | 
 echo "📟 Henter RAM-størrelse..."
 TOTAL_RAM_BYTES=$(free -b | awk '/Mem:/ {print $2}' | xargs)
 
-# 3. Hent unik Hardware UUID
-echo "🆔 Henter maskinvare-UUID..."
+# 3. Hent unik Hardware UUID og Hovedkort-info
+echo "🆔 Henter maskinvare- og hovedkort-info..."
 SYS_UUID=$(cat /sys/class/dmi/id/product_uuid 2>/dev/null | xargs)
 
-# Sjekk om UUID er tom, mangler, eller bare inneholder nuller/bindestreker
 if [ -z "$SYS_UUID" ] || [ "$SYS_UUID" = "Not Specified" ] || [[ "$SYS_UUID" =~ ^[0,-]*$ ]]; then
-    echo "⚠️  Hovedkort mangler gyldig UUID (fikk: $SYS_UUID). Bruker /etc/machine-id som fallback..."
-    SYS_UUID=$(cat /etc/machine-id 2>/dev/null | xargs)
+    if [[ "$SYS_UUID" =~ ^[0,-]*$ ]] && [ ! -z "$SYS_UUID" ]; then
+        echo "ℹ️  Maskinen bruker en gyldig null-prefixet UUID."
+    else
+        echo "⚠️  Hovedkort mangler UUID. Bruker /etc/machine-id som fallback..."
+        SYS_UUID=$(cat /etc/machine-id 2>/dev/null | xargs)
+    fi
 fi
 
-# Hvis alt annet mot formodning feiler, lag en unik ID basert på hostname
+# Hent detaljer om det fysiske hovedkortet
+MOBO_VENDOR=$(cat /sys/class/dmi/id/board_vendor 2>/dev/null | xargs)
+MOBO_NAME=$(cat /sys/class/dmi/id/board_name 2>/dev/null | xargs)
+MOBO_SERIAL=$(cat /sys/class/dmi/id/board_serial 2>/dev/null | xargs)
+
+# Fallbacks hvis variablene er tomme
+[ -z "$MOBO_VENDOR" ] && MOBO_VENDOR="Linux System"
+[ -z "$MOBO_NAME" ] && MOBO_NAME="Generic Hardware"
+[ -z "$MOBO_SERIAL" ] && MOBO_SERIAL="Ukjent"
+
 [ -z "$SYS_UUID" ] && SYS_UUID="fallback-$(echo "$SERVER_NAME" | md5sum | awk '{print $1}')"
 
 # 4. Pakk alt sammen i en 100% trygg JSON-struktur med jq
@@ -40,6 +52,9 @@ PAYLOAD=$(jq -n \
   --arg cpu "$CPU_MODEL" \
   --arg ram "$TOTAL_RAM_BYTES" \
   --arg uuid "$SYS_UUID" \
+  --arg mb_vendor "$MOBO_VENDOR" \
+  --arg mb_name "$MOBO_NAME" \
+  --arg mb_serial "$MOBO_SERIAL" \
   '{
     server_name: $sn,
     cpu_model: $cpu,
@@ -47,16 +62,19 @@ PAYLOAD=$(jq -n \
     hardware_uuid: $uuid,
     hardware_json: {
       motherboard: {
-        produsent: "Linux System",
-        modell: "Generic Hardware",
-        hardware_uuid: $uuid
+        produsent: $mb_vendor,
+        modell: $mb_name,
+        hardware_uuid: $uuid,
+        serienummer: $mb_serial
       },
       processors: [$cpu],
       disks: [],
       graphics: []
     }
   }')
-
+  
+  
+  
 # 5. Send herligheten til Cloudflare Workers
 echo "📡 Sender maskinvarestatus til Mathomia Cloud..."
 RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$WORKER_URL" \
