@@ -121,6 +121,7 @@ PAYLOAD=$(jq -n \
   --arg mb_vendor "$MOBO_VENDOR" \
   --arg mb_name "$MOBO_NAME" \
   --arg mb_serial "$MOBO_SERIAL" \
+  --argjson mem_array "[$MEMORY_JSON_ARRAY]" \
   '{
     server_name: $sn,
     cpu_model: $cpu,
@@ -134,11 +135,11 @@ PAYLOAD=$(jq -n \
         serienummer: $mb_serial
       },
       processors: [$cpu],
+      memory: $mem_array,
       disks: [],
       graphics: []
     }
   }')
-  
   
   
 # 5. Send herligheten til Cloudflare Workers
