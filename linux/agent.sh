@@ -1,57 +1,69 @@
 #!/bin/bash
-# Mathomia Linux Main Agent v3.0 (Modulær)
+
+# =============================================
+# 🐧 Mathomia Linux Agent (Alt-i-ett-versjon)
+# =============================================
 
 WORKER_URL="https://mathomia-worker.nrcignis.workers.dev"
-GITHUB_RAW="https://raw.githubusercontent.com/nroen/mathomia-agent/main/linux"
-SERVER_NAME=$(hostname)
-
-# Sentral feilrapportering hvis noe tryner underveis
-rapporter_feil() {
-  local linje=$1
-  local kommando=$2
-  curl -s -X POST "$WORKER_URL" \
-    -H "Content-Type: application/json" \
-    -d "{\"server_name\": \"$SERVER_NAME\", \"type\": \"error_report\", \"error_message\": \"Linux-agent feilet på linje $linje under kommando: $kommando\"}"
-}
-
-set -e
-trap 'rapporter_feil $LINENO "$BASH_COMMAND"' ERR
+SERVER_NAME=$(hostname | xargs)
 
 echo "============================================="
-echo " 🐧 Mathomia Linux Agent"
+echo " 🐧 Mathomia Linux Agent "
 echo "============================================="
 
-# 1. Last inn alle sub-skript dynamisk fra GitHub inn i minnet
-echo "📥 Henter moduler fra GitHub..."
-source <(curl -sSL "$GITHUB_RAW/detect_cpu.sh")
-source <(curl -sSL "$GITHUB_RAW/detect_ram.sh")
-source <(curl -sSL "$GITHUB_RAW/detect_storage.sh")
-source <(curl -sSL "$GITHUB_RAW/detect_graphics.sh")
-source <(curl -sSL "$GITHUB_RAW/detect_other.sh")
+# 1. Hent CPU-info
+echo "🧠 Henter CPU-informasjon..."
+CPU_MODEL=$(grep -m1 'model name' /proc/cpuinfo | sed 's/model name\s*:\s*//' | xargs)
+[ -z "$CPU_MODEL" ] && CPU_MODEL=$(lscpu | grep 'Model name' | sed 's/Model name:\s*//' | xargs)
 
-# 2. Siden vi har delt opp i moduler, limer vi sammen de ulike JSON-strengene
-# Vi bruker jq til å bygge den endelige payloaden helt trygt
+# 2. Hent RAM-info (i bytes)
+echo "📟 Henter RAM-størrelse..."
+TOTAL_RAM_BYTES=$(free -b | awk '/Mem:/ {print $2}' | xargs)
+
+# 3. Hent unik Hardware UUID
+echo "🆔 Henter maskinvare-UUID..."
+SYS_UUID=$(cat /sys/class/dmi/id/product_uuid 2>/dev/null | xargs)
+if [ -z "$SYS_UUID" ] || [ "$SYS_UUID" = "Not Specified" ]; then
+    SYS_UUID=$(cat /etc/machine-id 2>/dev/null | xargs)
+fi
+[ -z "$SYS_UUID" ] && SYS_UUID="fallback-$(echo "$SERVER_NAME" | md5sum | awk '{print $1}')"
+
+# 4. Pakk alt sammen i en 100% trygg JSON-struktur med jq
+echo "📦 Pakker data til JSON..."
 PAYLOAD=$(jq -n \
   --arg sn "$SERVER_NAME" \
   --arg cpu "$CPU_MODEL" \
-  --argjson ram "$TOTAL_RAM_BYTES" \
-  --argjson disks "$DISKS_JSON" \
-  --argjson gpu "$GPU_JSON" \
-  --argjson other "$OTHER_JSON" \
+  --arg ram "$TOTAL_RAM_BYTES" \
+  --arg uuid "$SYS_UUID" \
   '{
-    server_name: $sn, 
-    cpu_model: $cpu, 
-    total_ram_bytes: ($ram | tonumber), 
+    server_name: $sn,
+    cpu_model: $cpu,
+    total_ram_bytes: ($ram | tonumber),
+    hardware_uuid: $uuid,
     hardware_json: {
-      motherboard: $other,
+      motherboard: {
+        produsent: "Linux System",
+        modell: "Generic Hardware",
+        hardware_uuid: $uuid
+      },
       processors: [$cpu],
-      disks: $disks,
-      graphics: $gpu
+      disks: [],
+      graphics: []
     }
   }')
 
-# 3. Send til Cloudflare Workers
-echo "📡 Sender komplett hardware-kartotek til Cloudflare..."
-curl -s -X POST "$WORKER_URL" -H "Content-Type: application/json" -d "$PAYLOAD"
-echo "✅ Skanning fullført for $SERVER_NAME!"
-# Vasket og klar
+# 5. Send herligheten til Cloudflare Workers
+echo "📡 Sender maskinvarestatus til Mathomia Cloud..."
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$WORKER_URL" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD")
+
+HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+if [ "$HTTP_STATUS" -eq 200 ]; then
+    echo "✅ Suksess! Data lagret i Neon-databasen."
+else
+    echo "❌ Feil under innsending! (HTTP $HTTP_STATUS)"
+    echo "Svar fra server: $BODY"
+fi

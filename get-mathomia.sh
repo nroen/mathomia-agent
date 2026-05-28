@@ -1,53 +1,41 @@
 #!/bin/bash
-# ====================================================
-# 🌐 Mathomia Agent Installer for Linux
-# ====================================================
 
-GITHUB_RAW="https://raw.githubusercontent.com/nroen/mathomia-agent/main"
+# ====================================================
+# 🛠️ Mathomia Hardware Agent Installer
+# ====================================================
 
 echo "===================================================="
 echo " 🛠️  Installerer Mathomia Hardware Agent..."
 echo "===================================================="
 
-# 1. Sjekk om skriptet kjøres som root (nødvendig for å skrive til crontab og lese DMI/UUID)
+# Sjekk at skriptet kjøres som root
 if [ "$EUID" -ne 0 ]; then
-  echo "❌ Feil: Dette installasjonsskriptet må kjøres som root (sudo bash)."
+  echo "❌ Vennligst kjør som root (sudo bash get-mathomia.sh)"
   exit 1
 fi
 
-# 2. Sjekk og installer jq hvis det mangler (hovedagenten trenger det)
-if ! command -v jq &> /dev/null; then
-    echo "📦 'jq' mangler. Prøver å installere automatisk..."
-    if command -v apt-get &> /dev/null; then
-        apt-get update && apt-get install -y jq
-    elif command -v yum &> /dev/null; then
-        yum install -y jq
-    else
-        echo "❌ Kunne ikke installere jq automatisk. Installer det manuelt og kjør igjen."
-        exit 1
-    fi
+# Installer jq og curl hvis det mangler
+if ! command -v jq &> /dev/null || ! command -v curl &> /dev/null; then
+    echo "📦 Installerer nødvendige pakker (curl, jq)..."
+    apt-get update -y && apt-get install -y curl jq
 fi
 
-# 3. Opprett den timelige cron-jobben
+# Opprett mappe til agenten
+INSTALL_DIR="/usr/local/bin/mathomia"
+mkdir -p "$INSTALL_DIR"
+
+echo "📥 Henter alt-i-ett-agenten fra GitHub..."
+curl -sSL "https://raw.githubusercontent.com/nroen/mathomia-agent/main/linux/agent.sh" > "$INSTALL_DIR/agent.sh"
+chmod +x "$INSTALL_DIR/agent.sh"
+
 echo "⏰ Setter opp cron-jobb (Kjører hver time)..."
+CRON_JOB="0 * * * * /usr/local/bin/mathomia/agent.sh > /var/log/mathomia-agent.log 2>&1"
+(crontab -l 2>/dev/null | grep -F "$INSTALL_DIR/agent.sh") && echo "ℹ️  Cron-jobben er allerede konfigurert." || (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
 
-# Kommandoen som cron skal kjøre
-CRON_CMD="0 * * * * curl -sSL $GITHUB_RAW/linux/agent.sh | bash"
-
-# Sjekk om jobben allerede finnes i crontab fra før av for å unngå duplikater
-if crontab -l 2>/dev/null | grep -Fq "$GITHUB_RAW/linux/agent.sh"; then
-    echo "ℹ️  Cron-jobben er allerede konfigurert."
-else
-    # Hent eksisterende cron, legg til den nye linjen, og lagre tilbake
-    (crontab -l 2>/dev/null; echo "$CRON_CMD") | crontab -
-    echo "✅ Cron-jobb ble lagt til i systemet."
-fi
-
-# 4. Trigger en første skanning umiddelbart så dataene sendes til Neon med en gang
 echo "🚀 Kjører første maskinvareskanning umiddelbart..."
-curl -sSL "$GITHUB_RAW/linux/agent.sh" | bash
+bash "$INSTALL_DIR/agent.sh"
 
 echo "===================================================="
 echo " 🎉 Installasjonen er fullført!"
-echo " 🕵️‍♂️ Agenten sjekker seg inn på GitHub hver time."
+echo " 🕵️‍♂️ Agenten skanner maskinvaren og sender status hver time."
 echo "===================================================="
