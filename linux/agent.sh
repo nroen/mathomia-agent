@@ -49,25 +49,33 @@ MOBO_SERIAL=$(cat /sys/class/dmi/id/board_serial 2>/dev/null | xargs)
 echo "📟 Henter detaljer om minnebrikker..."
 MEMORY_JSON_ARRAY=""
 
-# Vi bruker et mer robust skilletegn i awk for å fange HELE blokken per enhet
+# Vi bruker RS="\nMemory Device\n" som vi vet fungerer fjell på MSI-kortet
 while read -r block; do
     # Hvis blokken ikke inneholder en installert brikke, hopp over
     if [[ ! "$block" =~ "Size:" ]] || [[ "$block" =~ "No Module Installed" ]]; then
         continue
     fi
 
-    # Hent ut verdiene trygt
+    # Hent ut standardverdiene
     size=$(echo "$block" | grep "Size:" | head -n1 | cut -d: -f2 | xargs)
     locator=$(echo "$block" | grep "Locator:" | head -n1 | cut -d: -f2 | xargs)
     vendor=$(echo "$block" | grep "Manufacturer:" | head -n1 | cut -d: -f2 | xargs)
     speed=$(echo "$block" | grep "Speed:" | grep -E "MT/s|MHz" | head -n1 | cut -d: -f2 | xargs)
 
+    # NYTT: Hent ut type, serienummer og delenummer
+    type=$(echo "$block" | grep "Type:" | head -n1 | cut -d: -f2 | xargs)
+    serial=$(echo "$block" | grep "Serial Number:" | head -n1 | cut -d: -f2 | xargs)
+    part=$(echo "$block" | grep "Part Number:" | head -n1 | cut -d: -f2 | xargs)
+
     [ -z "$size" ] && continue
 
-    # Fallbacks hvis felter mangler
+    # Fallbacks hvis felter mangler eller inneholder rart output
     [ -z "$vendor" ] || [ "$vendor" = "Unknown" ] && vendor="Generisk"
     [ -z "$speed" ] && speed="Ukjent"
     [ -z "$locator" ] && locator="Ukjent spor"
+    [ -z "$type" ] && type="DDR"
+    [ -z "$serial" ] || [ "$serial" = "Unknown" ] || [ "$serial" = "00000000" ] && serial=""
+    [ -z "$part" ] || [ "$part" = "Unknown" ] && part=""
 
     # Konverter størrelse til bytes
     RAW_SIZE_NUM=$(echo "$size" | grep -oE '[0-9]+')
@@ -78,13 +86,24 @@ while read -r block; do
         SIZE_BYTES=$((RAW_SIZE_NUM * 1024 * 1024))
     fi
 
-    # VIKTIG: Bruk -c (compact) for å fjerne linjeskift i JSON-strengen!
+    # Oppdatert JQ: Vi legger til type, serienummer og partnummer i JSON-objektet
     MEM_ITEM=$(jq -c -n \
       --arg loc "$locator" \
       --arg ven "$vendor" \
       --arg spd "$speed" \
       --arg size "$SIZE_BYTES" \
-      '{modell: ("RAM-brikke (" + $loc + ")"), produsent: $ven, hastighet: $spd, storrelse_bytes: ($size | tonumber)}')
+      --arg type "$type" \
+      --arg sn "$serial" \
+      --arg pn "$part" \
+      '{
+        modell: ("RAM-brikke (" + $loc + ")"),
+        produsent: $ven,
+        type: $type,
+        hastighet: $spd,
+        storrelse_bytes: ($size | tonumber),
+        serienummer: (if $sn == "" then null else $sn end),
+        delenummer: (if $pn == "" then null else $pn end)
+      } | del(..|nulls)') # Sletter tomme felter så vi slipper rot på skjermen
 
     if [ -z "$MEMORY_JSON_ARRAY" ]; then
         MEMORY_JSON_ARRAY="$MEM_ITEM"
@@ -92,7 +111,6 @@ while read -r block; do
         MEMORY_JSON_ARRAY="$MEMORY_JSON_ARRAY,$MEM_ITEM"
     fi
 
-# Endret RS til "Memory Device" i stedet for "Handle " for å fange hele blokken samlet!
 done < <(sudo dmidecode -t memory 2>/dev/null | awk 'BEGIN {RS="\nMemory Device\n"} {print $0}')
 
 # Hvis maskinen er en VM eller dmidecode feilet helt
@@ -101,8 +119,6 @@ if [ -z "$MEMORY_JSON_ARRAY" ]; then
       --arg size "$TOTAL_RAM_BYTES" \
       '{modell: "Virtuell minneallokering", produsent: "Hypervisor", storrelse_bytes: ($size | tonumber)}')
 fi
-
-
 
 
 
