@@ -52,22 +52,23 @@ MEMORY_JSON_ARRAY=""
 # Vi parser dmidecode per brikke-blokk (Handle)
 while read -r block; do
     # Hvis blokken ikke inneholder en installert brikke, eller er tom, hopp over
-    if [[ ! "$block" =~ "Size:" ]] || [[ "$block" =~ "No Module Installed" ]]; then
+    if [[ ! "$block" =~ "Size:" ]] || [[ "$block" =~ "No Module Installed" ]] || [[ "$block" =~ "Unknown" ]]; then
         continue
     fi
 
-    # Hent ut verdiene trygt ved hjelp av grep og cut
-    size=$(echo "$block" | grep "Size:" | head -n1 | cut -d: -f2 | xargs)
-    locator=$(echo "$block" | grep "Locator:" | head -n1 | cut -d: -f2 | xargs)
-    vendor=$(echo "$block" | grep "Manufacturer:" | head -n1 | cut -d: -f2 | xargs)
-    
-    # Hent hastighet (vi tar første treff som har "MT/s" eller "MHz", for å unngå "Unknown" eller "Configured")
-    speed=$(echo "$block" | grep "Speed:" | grep -E "MT/s|MHz" | head -n1 | cut -d: -f2 | xargs)
+    # Hent ut verdiene trygt, og vask bort alle uønskede linjeskift/returer fullstendig
+    size=$(echo "$block" | grep "Size:" | head -n1 | cut -d: -f2 | tr -d '\r\n' | xargs)
+    locator=$(echo "$block" | grep "Locator:" | head -n1 | cut -d: -f2 | tr -d '\r\n' | xargs)
+    vendor=$(echo "$block" | grep "Manufacturer:" | head -n1 | cut -d: -f2 | tr -d '\r\n' | xargs)
+    speed=$(echo "$block" | grep "Speed:" | grep -E "MT/s|MHz" | head -n1 | cut -d: -f2 | tr -d '\r\n' | xargs)
 
-    # Fallbacks hvis felter er tomme eller ubrukelige
-    [ -z "$vendor" ] || [ "$vendor" = "Unknown" ] && vendor="Generisk"
-    [ -z "$speed" ] && speed="Ukjent"
-    [ -z "$locator" ] && locator="Ukjent spor"
+    # Hvis størrelsen mot formodning ble tom, hopper vi over hele blokken
+    [ -z "$size" ] && continue
+
+    # Fallbacks hvis felter er tomme eller mangler data
+    if [ -z "$vendor" ] || [ "$vendor" = "Unknown" ] || [ "$vendor" = "Default string" ]; then vendor="Generisk"; fi
+    if [ -z "$speed" ] || [ "$speed" = "Unknown" ]; then speed="Ukjent"; fi
+    if [ -z "$locator" ] || [ "$locator" = "Default string" ]; then locator="Ukjent spor"; fi
 
     # Konverter størrelse til bytes (f.eks. "16 GB" eller "8192 MB")
     RAW_SIZE_NUM=$(echo "$size" | grep -oE '[0-9]+')
