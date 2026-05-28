@@ -237,7 +237,7 @@ fi
 
 
 
-# 4. Pakk alt sammen i en 100% trygg JSON-struktur med jq
+# 4. Pakk alt sammen i en 100% trygg JSON-structure med jq
 echo "📦 Pakker data til JSON..."
 PAYLOAD=$(jq -n \
   --arg sn "$SERVER_NAME" \
@@ -248,6 +248,7 @@ PAYLOAD=$(jq -n \
   --arg mb_name "$MOBO_NAME" \
   --arg mb_serial "$MOBO_SERIAL" \
   --argjson mem_array "[$MEMORY_JSON_ARRAY]" \
+  --argjson disk_array "[$DISKS_JSON_ARRAY]" \
   '{
     server_name: $sn,
     cpu_model: $cpu,
@@ -262,11 +263,10 @@ PAYLOAD=$(jq -n \
       },
       processors: [$cpu],
       memory: $mem_array,
-      disks: [],
+      disks: $disk_array,
       graphics: []
     }
-  }')
-  
+  }')  
   
 # 5. Send herligheten til Cloudflare Workers
 echo "📡 Sender maskinvarestatus til Mathomia Cloud..."
