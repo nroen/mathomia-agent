@@ -54,3 +54,4 @@ PAYLOAD=$(jq -n \
 echo "📡 Sender komplett hardware-kartotek til Cloudflare..."
 curl -s -X POST "$WORKER_URL" -H "Content-Type: application/json" -d "$PAYLOAD"
 echo "✅ Skanning fullført for $SERVER_NAME!"
+# Vasket og klar
