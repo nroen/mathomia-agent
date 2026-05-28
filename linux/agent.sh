@@ -171,7 +171,6 @@ DISKS_JSON_ARRAY=""
 LSBLK_JSON=$(lsblk -d -J -o NAME,MODEL,SIZE,SERIAL,ROTA 2>/dev/null)
 
 if [ ! -z "$LSBLK_JSON" ]; then
-    # Vi bruker jq til å filtrere, vaske og strukturere diskene på én kompakt linje per disk
     while read -r disk_line; do
         [ -z "$disk_line" ] && continue
         
@@ -180,7 +179,6 @@ if [ ! -z "$LSBLK_JSON" ]; then
         else
             DISKS_JSON_ARRAY="$DISKS_JSON_ARRAY,$disk_line"
         fi
-    # Luker ut loop-enheter, henter ut tallverdi og enhet direkte med jq sin match/capture
     done < <(echo "$LSBLK_JSON" | jq -c '.blockdevices[] | select(.name | startswith("loop") | not) |
         ((.size | match("([0-9.]+)").string | tonumber)) as $raw_val |
         ((.size | match("([GKMTEP])").string // "B")) as $unit |
@@ -201,6 +199,62 @@ if [ ! -z "$LSBLK_JSON" ]; then
           storrelse_bytes: $bytes,
           serienummer: (if .serial == null or .serial == "" or .serial == "Unknown" then null else .serial end)
         } | del(..|nulls)')
+fi
+
+
+
+
+
+
+
+
+
+
+# 4. Pakk alt sammen i en 100% trygg JSON-structure med jq
+echo "📦 Pakker data til JSON..."
+PAYLOAD=$(jq -n \
+  --arg sn "$SERVER_NAME" \
+  --arg cpu "$CPU_MODEL" \
+  --arg ram "$TOTAL_RAM_BYTES" \
+  --arg uuid "$SYS_UUID" \
+  --arg mb_vendor "$MOBO_VENDOR" \
+  --arg mb_name "$MOBO_NAME" \
+  --arg mb_serial "$MOBO_SERIAL" \
+  --argjson mem_array "[$MEMORY_JSON_ARRAY]" \
+  --argjson disk_array "[$DISKS_JSON_ARRAY]" \
+  '{
+    server_name: $sn,
+    cpu_model: $cpu,
+    total_ram_bytes: ($ram | tonumber),
+    hardware_uuid: $uuid,
+    hardware_json: {
+      motherboard: {
+        produsent: $mb_vendor,
+        modell: $mb_name,
+        hardware_uuid: $uuid,
+        serienummer: $mb_serial
+      },
+      processors: [$cpu],
+      memory: $mem_array,
+      disks: $disk_array,
+      graphics: []
+    }
+  }')
+
+# 5. Send herligheten til Cloudflare Workers
+echo "📡 Sender maskinvarestatus til Mathomia Cloud..."
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$WORKER_URL" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD")
+
+HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+if [ "$HTTP_STATUS" -eq 200 ]; then
+    echo "✅ Suksess! Data lagret i Neon-databasen."
+else
+    echo "❌ Feil under innsending! (HTTP $HTTP_STATUS)"
+    echo "Svar fra server: $BODY"
 fi
 
 
