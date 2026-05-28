@@ -45,6 +45,66 @@ MOBO_SERIAL=$(cat /sys/class/dmi/id/board_serial 2>/dev/null | xargs)
 
 [ -z "$SYS_UUID" ] && SYS_UUID="fallback-$(echo "$SERVER_NAME" | md5sum | awk '{print $1}')"
 
+# Hent detaljer om minnebrikker (RAM)
+echo "📟 Henter detaljer om minnebrikker..."
+MEMORY_JSON_ARRAY=""
+
+# Vi bruker dmidecode til å loope gjennom alle installerte minnebrikker
+while read -r size locator vendor speed; do
+    # Hvis feltet er tomt eller brikken er markert som tom/ukjent, hopper vi over
+    if [ -z "$size" ] || [[ "$size" =~ "No" ]] || [[ "$size" =~ "Unknown" ]]; then
+        continue
+    fi
+    
+    # Konverter størrelse til bytes (dmidecode gir ofte f.eks. "16 GB" eller "16384 MB")
+    RAW_SIZE_NUM=$(echo "$size" | grep -oE '[0-9]+')
+    SIZE_BYTES=0
+    if [[ "$size" =~ "GB" ]]; then
+        SIZE_BYTES=$((RAW_SIZE_NUM * 1024 * 1024 * 1024))
+    elif [[ "$size" =~ "MB" ]]; then
+        SIZE_BYTES=$((RAW_SIZE_NUM * 1024 * 1024))
+    fi
+
+    # Rens opp lokasjon, produsent og hastighet
+    [ -z "$vendor" ] || [ "$vendor" = "Unknown" ] && vendor="Generisk"
+    [ -z "$speed" ] || [ "$speed" = "Unknown" ] && speed="Ukjent"
+    
+    # Bygg et lite JSON-objekt for denne brikken ved hjelp av jq
+    MEM_ITEM=$(jq -n \
+      --arg loc "$locator" \
+      --arg ven "$vendor" \
+      --arg spd "$speed" \
+      --arg size "$SIZE_BYTES" \
+      '{modell: ("RAM-brikke (" + $loc + ")"), produsent: $ven, hastighet: $spd, storrelse_bytes: ($size | tonumber)}')
+
+    if [ -z "$MEMORY_JSON_ARRAY" ]; then
+        MEMORY_JSON_ARRAY="$MEM_ITEM"
+    else
+        MEMORY_JSON_ARRAY="$MEMORY_JSON_ARRAY,$MEM_ITEM"
+    fi
+done < <(sudo dmidecode -t memory 2>/dev/null | awk '
+    /Size:/ {size=$2" "$3}
+    /Locator:/ {loc=$2}
+    /Manufacturer:/ {vendor=$2; for(i=3;i<=NF;i++) vendor=vendor" "$i}
+    /Speed:/ {speed=$2" "$3; print size"|"loc"|"vendor"|"speed}
+' | grep -v "No Module Installed" | tr '|' ' ')
+
+# Hvis maskinen er en VM eller dmidecode feilet helt, lager vi en virtuell brikke basert på total RAM
+if [ -z "$MEMORY_JSON_ARRAY" ]; then
+    MEMORY_JSON_ARRAY=$(jq -n \
+      --arg size "$TOTAL_RAM_BYTES" \
+      '{modell: "Virtuell minneallokering", produsent: "Hypervisor", storrelse_bytes: ($size | tonumber)}')
+fi
+
+
+
+
+
+
+
+
+
+
 # 4. Pakk alt sammen i en 100% trygg JSON-struktur med jq
 echo "📦 Pakker data til JSON..."
 PAYLOAD=$(jq -n \
