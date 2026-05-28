@@ -163,12 +163,11 @@ fi
 
 
 
-
 # 3.5 Hent detaljer om fysiske lagringsdisker
 echo "💾 Henter detaljer om lagringsdisker..."
 DISKS_JSON_ARRAY=""
 
-# Vi henter ut kun fysiske disker (type "disk") i JSON-format fra lsblk
+# Vi henter ut kun fysiske enheter i JSON-format fra lsblk
 LSBLK_JSON=$(lsblk -d -J -o NAME,MODEL,SIZE,SERIAL,ROTA 2>/dev/null)
 
 if [ ! -z "$LSBLK_JSON" ]; then
@@ -181,57 +180,28 @@ if [ ! -z "$LSBLK_JSON" ]; then
         else
             DISKS_JSON_ARRAY="$DISKS_JSON_ARRAY,$disk_line"
         fi
-    # jq-magi: Regner ut bytes, setter disktype basert på rotasjon (ROTA) eller NVMe-navn, og fjerner tomme serienummer
-    done < <(echo "$LSBLK_JSON" | jq -c '.blockdevices[] | select(.type != "loop") | 
-        # Beregn størrelse i bytes basert på lsblk-størrelsen (f.eks. 500G eller 1T)
-        (.size | sub("(?<_1>[0-9.]+)(?<_2>[GKMTEP])"; "\(.[] | tostring)") | split(" ") | .[0] | tonumber) as $raw_val |
-        (.size | grep -oE "[GKMTEP]") as $unit |
-        (if $unit == "G" then $raw_val * 1024 * 1024 * 1024
-         elif $unit == "T" then $raw_val * 1024 * 1024 * 1024 * 1024
+    # Luker ut loop-enheter, henter ut tallverdi og enhet direkte med jq sin match/capture
+    done < <(echo "$LSBLK_JSON" | jq -c '.blockdevices[] | select(.name | startswith("loop") | not) |
+        ((.size | match("([0-9.]+)").string | tonumber)) as $raw_val |
+        ((.size | match("([GKMTEP])").string // "B")) as $unit |
+        (if $unit == "T" then $raw_val * 1024 * 1024 * 1024 * 1024
+         elif $unit == "G" then $raw_val * 1024 * 1024 * 1024
          elif $unit == "M" then $raw_val * 1024 * 1024
          else $raw_val end) as $bytes |
         
         # Finn disktype (NVMe, SSD eller HDD)
         (if (.name | startswith("nvme")) then "NVMe"
-         elif .rota == "1" or .rota == true then "HDD"
+         elif .rota == "1" or .rota == true or .rota == "true" then "HDD"
          else "SSD" end) as $dtype |
          
         {
-          modell: (if .model == null or .model == "" then "Generisk Disk (/" + .name + ")" else .model | xargs end),
+          modell: (if .model == null or .model == "" then "Generisk Disk (/" + .name + ")" else .model end),
           produsent: (if .model != null then (.model | split(" ")[0]) else "Ukjent" end),
           type: $dtype,
           storrelse_bytes: $bytes,
-          serienummer: (if .serial == null or .serial == "" or .serial == "Unknown" then null else .serial | xargs end)
+          serienummer: (if .serial == null or .serial == "" or .serial == "Unknown" then null else .serial end)
         } | del(..|nulls)')
 fi
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
