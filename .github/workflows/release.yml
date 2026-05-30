@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'linux/agent.sh'  # Kjører kun når agent-skriptet faktisk endres
+      - 'linux/agent.sh'
 
 jobs:
   build:
@@ -13,25 +13,22 @@ jobs:
     steps:
       - name: Sjekk ut kode
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Injisere versjon og commit-hash
         run: |
-          # Hent kort commit-hash (f.eks. 7a1b2c3)
           SHA_SHORT=$(git rev-parse --short HEAD)
-          # Hent dagens dato i formatet ÅÅÅÅ.MM.DD
           DATE_VERSION=$(date +'%Y.%m.%d')
           FULL_VERSION="${DATE_VERSION}-${SHA_SHORT}"
           
           echo "Setter versjon til: $FULL_VERSION"
           
-          # Erstatt plassholderne i skriptet som pushes til 'dist'-mappen eller overskriver
+          # Endrer filen kun i det midlertidige bygget på GitHub-serveren
           sed -i "s/AGENT_VERSION=\"DEV-BUILD\"/AGENT_VERSION=\"$FULL_VERSION\"/g" linux/agent.sh
           sed -i "s/COMMIT_HASH=\"local\"/COMMIT_HASH=\"$SHA_SHORT\"/g" linux/agent.sh
 
-      - name: Push oppdatert skript til GitHub
-        uses: stefanzweifel/git-auto-commit-action@v5
+      - name: Push ferdig skript til release-branch (uten å forstyrre main)
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          commit_message: "chore: auto-update agent version [skip ci]"
-          file_pattern: 'linux/agent.sh'
+          branch: release # Roboten dytter den ferdige filen hit!
+          folder: linux # Tar innholdet i linux-mappa og legger på rota av release-branchen
+          single-commit: true
