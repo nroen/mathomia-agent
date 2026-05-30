@@ -8,8 +8,8 @@ WORKER_URL="https://mathomia-worker.nrcignis.workers.dev"
 SERVER_NAME=$(hostname | xargs)
 
 # Versjonsinformasjon (oppdateres automatisk av GitHub Actions)
-AGENT_VERSION="DEV-BUILD"
-COMMIT_HASH="local"
+AGENT_VERSION="2026.05.30-be01434"
+COMMIT_HASH="be01434"
 
 echo "============================================="
 echo " 🐧 Mathomia Linux Agent ($AGENT_VERSION)"
