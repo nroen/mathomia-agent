@@ -212,22 +212,21 @@ fi
 
 
 
-
 # 3.7 Hent detaljer om grafikkort (GPU)
 echo "🏎️ Henter detaljer om grafikkort..."
 GRAPHICS_JSON_ARRAY=""
 
-# Vi henter ut alle enheter på PCI-bussen som er merket som VGA eller 3D-kontrollere
+# Vi skanner etter alle VGA-, 3D- og display-kontrollere på PCI-bussen
 while read -r gpu_line; do
     [ -z "$gpu_line" ] && continue
     
-    # Rens teksten litt (fjern PCI-adresse og "VGA compatible controller:")
-    GPU_RAW=$(echo "$gpu_line" | sed -E 's/^[0-9a-fA-F|.: ]+ (VGA compatible controller|3D controller): //I')
+    # Rens bort PCI-adresse og kontroller-type uansett format
+    GPU_RAW=$(echo "$gpu_line" | sed -E 's/^[0-9a-fA-F|.: ]+ (VGA compatible controller|3D controller|Display controller): //I')
     
-    # Finn produsent basert på første ordet
+    # Finn produsent (første ordet, f.eks. Intel, NVIDIA, Advanced)
     GPU_VENDOR=$(echo "$GPU_RAW" | awk '{print $1}')
     
-    # Bygg et rent JSON-objekt for dette kortet med jq
+    # Bygg et rent JSON-objekt med jq
     GPU_JSON=$(jq -c -n \
         --arg model "$GPU_RAW" \
         --arg vendor "$GPU_VENDOR" \
@@ -241,11 +240,7 @@ while read -r gpu_line; do
     else
         GRAPHICS_JSON_ARRAY="$GRAPHICS_JSON_ARRAY,$GPU_JSON"
     fi
-done < <(lspci 2>/dev/null | grep -E -i "vga|3d")
-
-
-
-
+done < <(lspci 2>/dev/null | grep -E -i "vga|3d|display")
 
 
 
