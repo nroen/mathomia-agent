@@ -26,9 +26,6 @@ mkdir -p "$INSTALL_DIR"
 
 echo "📥 Henter alt-i-ett-agenten fra GitHub..."
 curl -sSL "https://raw.githubusercontent.com/nroen/mathomia-agent/release/agent.sh" -o /usr/local/bin/mathomia/agent.sh
-
-
-
 chmod +x "$INSTALL_DIR/agent.sh"
 
 echo "⏰ Setter opp cron-jobb (Kjører hver time)..."
