@@ -244,23 +244,9 @@ done < <(lspci 2>/dev/null | grep -E -i "vga|3d|display")
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# 4. Pakk alt sammen i en 100% trygg JSON-structure med jq
+# ==============================================================================
+# 4. Pakk alt sammen i en 100% trygg JSON-struktur med jq
+# ==============================================================================
 echo "📦 Pakker data til JSON..."
 PAYLOAD=$(jq -n \
   --arg sn "$SERVER_NAME" \
@@ -272,6 +258,7 @@ PAYLOAD=$(jq -n \
   --arg mb_serial "$MOBO_SERIAL" \
   --argjson mem_array "[$MEMORY_JSON_ARRAY]" \
   --argjson disk_array "[$DISKS_JSON_ARRAY]" \
+  --argjson gfx_array "[$GRAPHICS_JSON_ARRAY]" \
   '{
     server_name: $sn,
     cpu_model: $cpu,
@@ -287,11 +274,13 @@ PAYLOAD=$(jq -n \
       processors: [$cpu],
       memory: $mem_array,
       disks: $disk_array,
-      graphics: []
+      graphics: $gfx_array
     }
   }')
 
+# ==============================================================================
 # 5. Send herligheten til Cloudflare Workers
+# ==============================================================================
 echo "📡 Sender maskinvarestatus til Mathomia Cloud..."
 RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$WORKER_URL" \
   -H "Content-Type: application/json" \
@@ -314,102 +303,3 @@ fi
 
 
 
-
-
-# 4. Pakk alt sammen i en 100% trygg JSON-structure med jq
-echo "📦 Pakker data til JSON..."
-PAYLOAD=$(jq -n \
-  --arg sn "$SERVER_NAME" \
-  --arg cpu "$CPU_MODEL" \
-  --arg ram "$TOTAL_RAM_BYTES" \
-  --arg uuid "$SYS_UUID" \
-  --arg mb_vendor "$MOBO_VENDOR" \
-  --arg mb_name "$MOBO_NAME" \
-  --arg mb_serial "$MOBO_SERIAL" \
-  --argjson mem_array "[$MEMORY_JSON_ARRAY]" \
-  --argjson disk_array "[$DISKS_JSON_ARRAY]" \
-  '{
-    server_name: $sn,
-    cpu_model: $cpu,
-    total_ram_bytes: ($ram | tonumber),
-    hardware_uuid: $uuid,
-    hardware_json: {
-      motherboard: {
-        produsent: $mb_vendor,
-        modell: $mb_name,
-        hardware_uuid: $uuid,
-        serienummer: $mb_serial
-      },
-      processors: [$cpu],
-      memory: $mem_array,
-      disks: $disk_array,
-      graphics: []
-    }
-  }')
-
-# 5. Send herligheten til Cloudflare Workers
-echo "📡 Sender maskinvarestatus til Mathomia Cloud..."
-RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$WORKER_URL" \
-  -H "Content-Type: application/json" \
-  -d "$PAYLOAD")
-
-HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-
-if [ "$HTTP_STATUS" -eq 200 ]; then
-    echo "✅ Suksess! Data lagret i Neon-databasen."
-else
-    echo "❌ Feil under innsending! (HTTP $HTTP_STATUS)"
-    echo "Svar fra server: $BODY"
-fi
-
-
-
-
-
-# 4. Pakk alt sammen i en 100% trygg JSON-structure med jq
-echo "📦 Pakker data til JSON..."
-PAYLOAD=$(jq -n \
-  --arg sn "$SERVER_NAME" \
-  --arg cpu "$CPU_MODEL" \
-  --arg ram "$TOTAL_RAM_BYTES" \
-  --arg uuid "$SYS_UUID" \
-  --arg mb_vendor "$MOBO_VENDOR" \
-  --arg mb_name "$MOBO_NAME" \
-  --arg mb_serial "$MOBO_SERIAL" \
-  --argjson mem_array "[$MEMORY_JSON_ARRAY]" \
-  --argjson disk_array "[$DISKS_JSON_ARRAY]" \
-  '{
-    server_name: $sn,
-    cpu_model: $cpu,
-    total_ram_bytes: ($ram | tonumber),
-    hardware_uuid: $uuid,
-    hardware_json: {
-      motherboard: {
-        produsent: $mb_vendor,
-        modell: $mb_name,
-        hardware_uuid: $uuid,
-        serienummer: $mb_serial
-      },
-      processors: [$cpu],
-      memory: $mem_array,
-      disks: $disk_array,
-      graphics: []
-    }
-  }')  
-  
-# 5. Send herligheten til Cloudflare Workers
-echo "📡 Sender maskinvarestatus til Mathomia Cloud..."
-RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$WORKER_URL" \
-  -H "Content-Type: application/json" \
-  -d "$PAYLOAD")
-
-HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-
-if [ "$HTTP_STATUS" -eq 200 ]; then
-    echo "✅ Suksess! Data lagret i Neon-databasen."
-else
-    echo "❌ Feil under innsending! (HTTP $HTTP_STATUS)"
-    echo "Svar fra server: $BODY"
-fi
