@@ -7,8 +7,12 @@
 WORKER_URL="https://mathomia-worker.nrcignis.workers.dev"
 SERVER_NAME=$(hostname | xargs)
 
+# Versjonsinformasjon (oppdateres automatisk av GitHub Actions)
+AGENT_VERSION="DEV-BUILD"
+COMMIT_HASH="local"
+
 echo "============================================="
-echo " 🐧 Mathomia Linux Agent "
+echo " 🐧 Mathomia Linux Agent ($AGENT_VERSION)"
 echo "============================================="
 
 # 1. Hent CPU-info
@@ -247,9 +251,14 @@ done < <(lspci 2>/dev/null | grep -E -i "vga|3d|display")
 # ==============================================================================
 # 4. Pakk alt sammen i en 100% trygg JSON-struktur med jq
 # ==============================================================================
+
+
+
+
 echo "📦 Pakker data til JSON..."
 PAYLOAD=$(jq -n \
   --arg sn "$SERVER_NAME" \
+  --arg ver "$AGENT_VERSION" \
   --arg cpu "$CPU_MODEL" \
   --arg ram "$TOTAL_RAM_BYTES" \
   --arg uuid "$SYS_UUID" \
@@ -277,6 +286,9 @@ PAYLOAD=$(jq -n \
       graphics: $gfx_array
     }
   }')
+
+
+
 
 # ==============================================================================
 # 5. Send herligheten til Cloudflare Workers
