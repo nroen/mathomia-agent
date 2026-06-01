@@ -216,27 +216,28 @@ fi
 
 
 
-# 3.7 Hent detaljer om grafikkort (GPU)
-echo "🏎️ Henter detaljer om grafikkort..."
+# ==============================================================================
+# 3.7 Get GPU / Graphics details
+# ==============================================================================
+echo "🏎️ Fetching GPU details..."
 GRAPHICS_JSON_ARRAY=""
 
-# Vi skanner etter alle VGA-, 3D- og display-kontrollere på PCI-bussen
 while read -r gpu_line; do
     [ -z "$gpu_line" ] && continue
     
-    # Rens bort PCI-adresse og kontroller-type uansett format
+    # Strip PCI address and controller type
     GPU_RAW=$(echo "$gpu_line" | sed -E 's/^[0-9a-fA-F|.: ]+ (VGA compatible controller|3D controller|Display controller): //I')
     
-    # Finn produsent (første ordet, f.eks. Intel, NVIDIA, Advanced)
+    # Extract vendor (first word)
     GPU_VENDOR=$(echo "$GPU_RAW" | awk '{print $1}')
     
-    # Bygg et rent JSON-objekt med jq
+    # Build clean JSON object using English keys
     GPU_JSON=$(jq -c -n \
         --arg model "$GPU_RAW" \
         --arg vendor "$GPU_VENDOR" \
         '{
-            modell: $model,
-            produsent: $vendor
+            model: $model,
+            vendor: $vendor
         }')
         
     if [ -z "$GRAPHICS_JSON_ARRAY" ]; then
@@ -246,18 +247,10 @@ while read -r gpu_line; do
     fi
 done < <(lspci 2>/dev/null | grep -E -i "vga|3d|display")
 
-
-
-
-
 # ==============================================================================
-# 4. Pakk alt sammen i en 100% trygg JSON-struktur med jq
+# 4. Pack everything into a safe JSON structure using jq
 # ==============================================================================
-
-
-
-
-echo "📦 Pakker data til JSON..."
+echo "📦 Packing data to JSON..."
 PAYLOAD=$(jq -n \
   --arg sn "$SERVER_NAME" \
   --arg ver "$AGENT_VERSION" \
@@ -272,15 +265,16 @@ PAYLOAD=$(jq -n \
   --argjson gfx_array "[$GRAPHICS_JSON_ARRAY]" \
   '{
     server_name: $sn,
+    agent_version: $ver,
     cpu_model: $cpu,
     total_ram_bytes: ($ram | tonumber),
     hardware_uuid: $uuid,
     hardware_json: {
       motherboard: {
-        produsent: $mb_vendor,
-        modell: $mb_name,
+        vendor: $mb_vendor,
+        model: $mb_name,
         hardware_uuid: $uuid,
-        serienummer: $mb_serial
+        serial_number: $mb_serial
       },
       processors: [$cpu],
       memory: $mem_array,
@@ -288,7 +282,6 @@ PAYLOAD=$(jq -n \
       graphics: $gfx_array
     }
   }')
-
 
 
 
