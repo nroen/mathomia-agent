@@ -28,24 +28,23 @@ Write-Host "[2/3] Kopierer agent.ps1 til programfiler..." -ForegroundColor Cyan
 
 $localAgent = $null
 
-# Sjekk om skriptet faktisk kjører fra en lokal fil (ikke via iex)
-if ($MyInvocation.MyCommand.Path) {
+# Sjekk om skriptet faktisk kjører fra en fysisk fil på disken (ikke via iex i minnet)
+if ($MyInvocation.MyCommand.Path -and (Test-Path $MyInvocation.MyCommand.Path)) {
     $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
     if ($scriptPath) {
         $localAgent = Join-Path $scriptPath "windows\agent.ps1"
     }
 }
 
-# Hvis vi fant en lokal fil, kopier den. Hvis ikke, hent fra GitHub.
+# Hvis vi fant en lokal fil, bruk den. Hvis ikke, kjør online fallback.
 if ($localAgent -and (Test-Path $localAgent)) {
     Copy-Item -Path $localAgent -Destination (Join-Path $INSTALL_DIR "agent.ps1") -Force
 } else {
     Write-Host "Kjører online installasjon, henter agent.ps1 fra GitHub..." -ForegroundColor Yellow
-    
-    # ERSTATT MED DITT FAKTISKE NAVN PÅ GITHUB:
     $githubAgentUrl = "https://raw.githubusercontent.com/nroen/mathomia-agent/main/windows/agent.ps1"
     Invoke-WebRequest -Uri $githubAgentUrl -OutFile (Join-Path $INSTALL_DIR "agent.ps1") -UseBasicParsing
 }
+
 
 # 5. Opprett Windows Scheduled Task
 Write-Host "[3/3] Oppretter planlagt oppgave..." -ForegroundColor Cyan
