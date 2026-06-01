@@ -2,8 +2,8 @@
 $AGENT_VERSION = "1.0.0"
 $COMMIT_HASH   = "main"
 
-$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-$configFile = Join-Path $scriptPath "config.json"
+# Siden agenten installeres fast her, bruker vi eksplisitt sti så SYSTEM-brukeren aldri går seg vill
+$configFile = "C:\Program Files\MathomiaAgent\config.json"
 
 if (-not (Test-Path $configFile)) {
     Write-Error "Feil: Fant ikke konfigurasjonsfilen på: $configFile"
@@ -35,8 +35,6 @@ $processors = @(@{
     cores  = $cpuInfo.NumberOfCores
 })
 
-
-
 # Memory (Brikke-detaljer og total_ram_bytes)
 $ramBytes = 0
 $memoryChips = Get-CimInstance -ClassName Win32_PhysicalMemory | ForEach-Object {
@@ -58,8 +56,6 @@ $memoryChips = Get-CimInstance -ClassName Win32_PhysicalMemory | ForEach-Object 
         part_number   = $_.PartNumber.Trim()
     }
 }
-
-
 
 $disks = Get-CimInstance -ClassName Win32_DiskDrive | ForEach-Object {
     @{ device_id = $_.DeviceID; model = $_.Model.Trim(); size_bytes = $_.Size; vendor = $_.Manufacturer }
@@ -87,7 +83,8 @@ $payload = [ordered]@{
 # --- 4. Send ---
 $headers = @{ "Content-Type" = "application/json" }
 try {
-    $response = Invoke-RestMethod -Uri $ENDPOINT_URL -Method Post -Body $payload -Headers $headers -TimeoutSec 15 -SkipHttpErrorCheck
+    # NÅ KORRIGERT: -SkipHttpErrorCheck er fjernet, og feil håndteres i catch-blokken
+    $response = Invoke-RestMethod -Uri $ENDPOINT_URL -Method Post -Body $payload -Headers $headers -TimeoutSec 15
     if ($response.error) { Write-Error "Serverfeil: $($response.error)"; Exit 1 }
     Write-Host "Suksess! Data sendt for $computerName." -ForegroundColor Green
 } catch {
