@@ -1,22 +1,8 @@
 
-
-
-
-
 # --- Konfigurasjon ---
 $AGENT_VERSION = "1.0.0"
 $COMMIT_HASH   = "main"
-
-# Siden agenten installeres fast her, bruker vi eksplisitt sti så SYSTEM-brukeren aldri går seg vill
-$configFile = "C:\Program Files\MathomiaAgent\config.json"
-
-if (-not (Test-Path $configFile)) {
-    Write-Error "Feil: Fant ikke konfigurasjonsfilen på: $configFile"
-    Exit 1
-}
-
-$config = Get-Content -Raw $configFile | ConvertFrom-Json
-$ENDPOINT_URL = $config.endpoint_url
+$ENDPOINT_URL  = "https://mathomia-worker.nrcignis.workers.dev" # Direkte her
 
 # --- 1. Grunndata ---
 $computerName = $env:COMPUTERNAME
