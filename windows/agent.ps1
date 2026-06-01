@@ -1,3 +1,8 @@
+
+
+
+
+
 # --- Konfigurasjon ---
 $AGENT_VERSION = "1.0.0"
 $COMMIT_HASH   = "main"
@@ -16,7 +21,16 @@ $ENDPOINT_URL = $config.endpoint_url
 # --- 1. Grunndata ---
 $computerName = $env:COMPUTERNAME
 $uuid = (Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID
-$osName = (Get-CimInstance -ClassName Win32_OperatingSystem).Caption
+
+# Hent detaljert OS-info
+$osInfo = Get-CimInstance -ClassName Win32_OperatingSystem
+$osName = $osInfo.Caption # F.eks. "Microsoft Windows 11 Pro"
+$osVersion = $osInfo.Version # F.eks. "10.0.22631"
+$osBuild = $osInfo.BuildNumber
+
+# Kombiner til en pen og detaljert streng
+$osDetail = "$osName (Build $osBuild)"
+$osType = "windows"  # Denne brukes til ikon-mapping i databasen/frontend
 
 # --- 2. Maskinvare (for hardware_json) ---
 $baseboard = Get-CimInstance -ClassName Win32_BaseBoard | Select-Object -First 1
@@ -70,6 +84,7 @@ $hardwareJson = @{
 }
 
 # --- 3. Payload (INGEN TIMESTAMP) ---
+
 $payload = [ordered]@{
     agent_version   = $AGENT_VERSION
     commit_hash     = $COMMIT_HASH
@@ -77,8 +92,12 @@ $payload = [ordered]@{
     hardware_uuid   = $uuid
     cpu_model       = $cpuName
     total_ram_bytes = $ramBytes
+    os_type         = $osType        # <-- NY
+    os_version      = $osDetail      # <-- NY (erstatter os_detail i hardware_json hvis du vil ha det på toppnivå)
     hardware_json   = $hardwareJson
 } | ConvertTo-Json -Depth 5 -Compress
+
+
 
 # --- 4. Send ---
 $headers = @{ "Content-Type" = "application/json" }
