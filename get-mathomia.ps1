@@ -23,16 +23,26 @@ Write-Host "[1/3] Genererer config.json..." -ForegroundColor Cyan
 $config = @{ endpoint_url = $CONFIG_URL } | ConvertTo-Json
 Set-Content -Path (Join-Path $INSTALL_DIR "config.json") -Value $config -Force
 
-# 4. Hent og kopier agent.ps1 relativt fra repoet
+# 4. Finn og kopier agent.ps1 relativt fra repoet (eller fallback til GitHub)
 Write-Host "[2/3] Kopierer agent.ps1 til programfiler..." -ForegroundColor Cyan
-$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-$localAgent = Join-Path $scriptPath "windows\agent.ps1"
 
-if (Test-Path $localAgent) {
+$localAgent = $null
+
+# Sjekk om skriptet faktisk kjører fra en lokal fil (ikke via iex)
+if ($MyInvocation.MyCommand.Path) {
+    $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+    if ($scriptPath) {
+        $localAgent = Join-Path $scriptPath "windows\agent.ps1"
+    }
+}
+
+# Hvis vi fant en lokal fil, kopier den. Hvis ikke, hent fra GitHub.
+if ($localAgent -and (Test-Path $localAgent)) {
     Copy-Item -Path $localAgent -Destination (Join-Path $INSTALL_DIR "agent.ps1") -Force
 } else {
-    # Fallback hvis du kjører via internett (irm | iex) og ikke har lokal mappe:
     Write-Host "Kjører online installasjon, henter agent.ps1 fra GitHub..." -ForegroundColor Yellow
+    
+    # ERSTATT MED DITT FAKTISKE NAVN PÅ GITHUB:
     $githubAgentUrl = "https://raw.githubusercontent.com/DITT_GITHUB_BRUKERNAVN/mathomia-agent/main/windows/agent.ps1"
     Invoke-WebRequest -Uri $githubAgentUrl -OutFile (Join-Path $INSTALL_DIR "agent.ps1") -UseBasicParsing
 }
