@@ -43,7 +43,7 @@ if ($localAgent -and (Test-Path $localAgent)) {
     Write-Host "Kjører online installasjon, henter agent.ps1 fra GitHub..." -ForegroundColor Yellow
     
     # ERSTATT MED DITT FAKTISKE NAVN PÅ GITHUB:
-    $githubAgentUrl = "https://raw.githubusercontent.com/DITT_GITHUB_BRUKERNAVN/mathomia-agent/main/windows/agent.ps1"
+    $githubAgentUrl = "https://raw.githubusercontent.com/nroen/mathomia-agent/main/windows/agent.ps1"
     Invoke-WebRequest -Uri $githubAgentUrl -OutFile (Join-Path $INSTALL_DIR "agent.ps1") -UseBasicParsing
 }
 
